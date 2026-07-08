@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OrderFlow — Microservices Demo</title>
+  <meta name="description" content="Live demo of a 3-service async microservices system with RabbitMQ, Saga pattern, and real-time order tracking." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080b14;
+      --surface:   #0f1424;
+      --border:    #1e2a45;
+      --purple:    #7c3aed;
+      --purple-lt: #a78bfa;
+      --cyan:      #06b6d4;
+      --cyan-lt:   #67e8f9;
+      --green:     #10b981;
+      --red:       #ef4444;
+      --amber:     #f59e0b;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --radius:    12px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Background glow ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 40% at 20% 10%, rgba(124,58,237,.12) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 35% at 80% 80%, rgba(6,182,212,.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Layout ── */
+    .container { max-width: 1280px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+    header {
+      padding: 28px 0 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 36px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--purple), var(--cyan));
+      border-radius: 10px;
+      display: grid; place-items: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    header h1 { font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
+    header p  { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    .badge {
+      margin-left: auto;
+      background: rgba(16,185,129,.12);
+      border: 1px solid rgba(16,185,129,.3);
+      color: var(--green);
+      font-size: 12px; font-weight: 500;
+      padding: 4px 12px;
+      border-radius: 999px;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .badge::before {
+      content: '';
+      width: 6px; height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .3; }
+    }
+
+    /* ── Grid ── */
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: 24px; margin-bottom: 32px; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+
+    .card-title {
+      font-size: 13px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .8px;
+      color: var(--muted);
+      margin-bottom: 20px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ── Form ── */
+    .form-group { margin-bottom: 16px; }
+
+    label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+
+    select, input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+
+    select:focus, input:focus { border-color: var(--purple); }
+    select option { background: #1a1f35; }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none; border-radius: 8px;
+      font-family: inherit; font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--purple), #5b21b6);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(124,58,237,.3);
+    }
+    .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(124,58,237,.4); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-danger {
+      background: rgba(239,68,68,.1);
+      border: 1px solid rgba(239,68,68,.3);
+      color: var(--red);
+      margin-top: 10px;
+    }
+    .btn-danger:hover { background: rgba(239,68,68,.2); }
+
+    /* ── Event Pipeline ── */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 28px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .pipe-node {
+      flex-shrink: 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      text-align: center;
+      transition: all .4s;
+      min-width: 120px;
+    }
+
+    .pipe-node.active-good  { border-color: var(--green); box-shadow: 0 0 16px rgba(16,185,129,.25); }
+    .pipe-node.active-bad   { border-color: var(--red);   box-shadow: 0 0 16px rgba(239,68,68,.25); }
+    .pipe-node.active-pulse { border-color: var(--amber); box-shadow: 0 0 16px rgba(245,158,11,.25); }
+
+    .pipe-icon { font-size: 22px; margin-bottom: 4px; }
+    .pipe-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .pipe-sub   { font-size: 10px; color: var(--muted); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+
+    .pipe-arrow {
+      flex-shrink: 0;
+      width: 40px;
+      height: 2px;
+      background: var(--border);
+      position: relative;
+      transition: background .4s;
+    }
+    .pipe-arrow.flowing      { background: linear-gradient(90deg, var(--green), var(--cyan)); }
+    .pipe-arrow.flowing-bad  { background: linear-gradient(90deg, var(--red), var(--amber)); }
+
+    .pipe-arrow::after {
+      content: '';
+      position: absolute;
+      right: -4px; top: -4px;
+      border: 5px solid transparent;
+      border-left-color: var(--border);
+      transition: border-left-color .4s;
+    }
+    .pipe-arrow.flowing::after      { border-left-color: var(--cyan); }
+    .pipe-arrow.flowing-bad::after  { border-left-color: var(--amber); }
+
+    /* ── Event Log ── */
+    .log-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      height: 190px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .log-entry { display: flex; gap: 10px; }
+    .log-time  { color: var(--muted); flex-shrink: 0; }
+    .log-good  { color: var(--green); }
+    .log-bad   { color: var(--red); }
+    .log-info  { color: var(--cyan-lt); }
+    .log-warn  { color: var(--amber); }
+
+    /* ── Orders Table ── */
+    .orders-card { margin-bottom: 40px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    th {
+      text-align: left;
+      padding: 10px 16px;
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .6px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 13px 16px;
+      border-bottom: 1px solid rgba(30,42,69,.5);
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+
+    .status-pending   { background: rgba(245,158,11,.12); color: var(--amber); border: 1px solid rgba(245,158,11,.25); }
+    .status-confirmed { background: rgba(16,185,129,.12); color: var(--green); border: 1px solid rgba(16,185,129,.25); }
+    .status-cancelled { background: rgba(239,68,68,.12);  color: var(--red);   border: 1px solid rgba(239,68,68,.25); }
+
+    .mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+    .empty-state { text-align: center; color: var(--muted); padding: 40px; font-size: 13px; }
+
+    /* ── Active order tracker ── */
+    #tracker {
+      background: rgba(124,58,237,.08);
+      border: 1px solid rgba(124,58,237,.25);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-top: 16px;
+      font-size: 13px;
+      display: none;
+    }
+    #tracker.visible { display: block; }
+    #tracker-label { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; margin-bottom: 4px; }
+    #tracker-status { font-weight: 600; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">⚡</div>
+    <div>
+      <h1>OrderFlow</h1>
+      <p>Microservices Demo — Order · Inventory · Notification via RabbitMQ</p>
+    </div>
+    <div class="badge" id="system-badge">All Systems Live</div>
+  </header>
+
+  <!-- ── Pipeline ── -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">📡 Live Event Pipeline</div>
+    <div class="pipeline">
+      <div class="pipe-node" id="node-order">
+        <div class="pipe-icon">📋</div>
+        <div class="pipe-label">Order Service</div>
+        <div class="pipe-sub">:5001</div>
+      </div>
+      <div class="pipe-arrow" id="arrow-1"></div>
+      <div class="pipe-node" id="node-rabbit1">
+        <div class="pipe-icon">🐰</div>
+        <div class="pipe-label">RabbitMQ</div>
+        <div class="pipe-sub">OrderCreated</div>
+      </div>
+      <div class="pipe-arrow" id="arrow-2"></div>
+      <div class="pipe-node" id="node-inventory">
+        <div class="pipe-icon">📦</div>
+        <div class="pipe-label">Inventory</div>
+        <div class="pipe-sub">:5002</div>
+      </div>
+      <div class="pipe-arrow" id="arrow-3"></div>
+      <div class="pipe-node" id="node-rabbit2">
+        <div class="pipe-icon">🐰</div>
+        <div class="pipe-label">RabbitMQ</div>
+        <div class="pipe-sub">Reserved/OOS</div>
+      </div>
+      <div class="pipe-arrow" id="arrow-4"></div>
+      <div class="pipe-node" id="node-notification">
+        <div class="pipe-icon">🔔</div>
+        <div class="pipe-label">Notification</div>
+        <div class="pipe-sub">:5003</div>
+      </div>
+      <div class="pipe-arrow" id="arrow-5"></div>
+      <div class="pipe-node" id="node-saga" style="min-width:100px">
+        <div class="pipe-icon">🔄</div>
+        <div class="pipe-label">Saga</div>
+        <div class="pipe-sub">Compensate</div>
+      </div>
+    </div>
+
+    <!-- Event log -->
+    <div class="log-box" id="event-log">
+      <div class="log-entry"><span class="log-time">--:--:--</span><span class="log-info">System ready. Place an order to see events flow.</span></div>
+    </div>
+  </div>
+
+  <!-- ── Main Grid ── -->
+  <div class="grid">
+
+    <!-- Left: Order Form -->
+    <div>
+      <div class="card">
+        <div class="card-title">🛒 Place an Order</div>
+
+        <div class="form-group">
+          <label for="product">Product</label>
+          <select id="product">
+            <option value="">Loading products...</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="quantity">Quantity</label>
+          <input type="number" id="quantity" value="1" min="1" max="999" />
+        </div>
+
+        <div class="form-group">
+          <label for="email">Customer Email</label>
+          <input type="email" id="email" value="demo@example.com" />
+        </div>
+
+        <div id="tracker">
+          <div id="tracker-label">Tracking Order</div>
+          <div id="tracker-status">⏳ Awaiting processing...</div>
+        </div>
+
+        <button class="btn btn-primary" id="btn-submit" onclick="placeOrder()">
+          ⚡ Place Order
+        </button>
+
+        <button class="btn btn-danger" onclick="placeFailOrder()">
+          💥 Test Failure Path (Out of Stock)
+        </button>
+      </div>
+
+      <!-- Stock levels -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">📊 Current Inventory</div>
+        <div id="stock-list" style="font-size:13px">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Right: Recent Orders -->
+    <div>
+      <div class="card" style="height:100%">
+        <div class="card-title">📋 Recent Orders <span style="margin-left:auto;font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0">Auto-refreshes every 3s</span></div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody id="orders-body">
+              <tr><td colspan="6" class="empty-state">No orders yet — place one to get started</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /grid -->
+
+</div><!-- /container -->
+
+<script>
+  const ORDER_URL     = 'http://localhost:5001';
+  const INVENTORY_URL = 'http://localhost:5002';
+
+  let pollInterval   = null;
+  let activeOrderId  = null;
+  let allOrders      = [];
+
+  // ── Bootstrap ────────────────────────────────────────────────────────────────
+
+  async function init() {
+    await loadProducts();
+    await loadOrders();
+    setInterval(loadOrders, 3000);
+    setInterval(loadInventory, 5000);
+  }
+
+  // ── Products ─────────────────────────────────────────────────────────────────
+
+  async function loadProducts() {
+    try {
+      const res  = await fetch(`${INVENTORY_URL}/products`);
+      const data = await res.json();
+      const sel  = document.getElementById('product');
+      sel.innerHTML = data.map(p =>
+        `<option value="${p.id}" data-stock="${p.stock_quantity}">${p.name} — ${p.stock_quantity} in stock</option>`
+      ).join('');
+      renderStock(data);
+    } catch (e) {
+      logEvent('warn', 'Could not reach Inventory Service — is Docker running?');
+    }
+  }
+
+  async function loadInventory() {
+    try {
+      const res  = await fetch(`${INVENTORY_URL}/products`);
+      const data = await res.json();
+      const sel  = document.getElementById('product');
+      // Update dropdown stock labels
+      data.forEach(p => {
+        const opt = sel.querySelector(`option[value="${p.id}"]`);
+        if (opt) { opt.text = `${p.name} — ${p.stock_quantity} in stock`; opt.dataset.stock = p.stock_quantity; }
+      });
+      renderStock(data);
+    } catch (_) {}
+  }
+
+  function renderStock(products) {
+    const el = document.getElementById('stock-list');
+    el.innerHTML = products.map(p => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--text)">${p.name}</span>
+        <span class="mono" style="color:${p.stock_quantity === 0 ? 'var(--red)' : p.stock_quantity < 10 ? 'var(--amber)' : 'var(--green)'}">
+          ${p.stock_quantity === 0 ? '❌ OOS' : p.stock_quantity + ' units'}
+        </span>
+      </div>
+    `).join('') + `<div style="font-size:11px;color:var(--muted);margin-top:8px">Refreshes every 5 seconds</div>`;
+  }
+
+  // ── Orders ───────────────────────────────────────────────────────────────────
+
+  async function loadOrders() {
+    try {
+      const res  = await fetch(`${ORDER_URL}/orders`);
+      allOrders  = await res.json();
+      renderOrders(allOrders);
+      if (activeOrderId) checkActiveOrder();
+    } catch (_) {}
+  }
+
+  function renderOrders(orders) {
+    const tbody = document.getElementById('orders-body');
+    if (!orders.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No orders yet — place one to get started</td></tr>';
+      return;
+    }
+    tbody.innerHTML = orders.slice(0, 20).map(o => `
+      <tr>
+        <td class="mono" style="color:var(--purple-lt)">#${o.id}</td>
+        <td>${o.product_id}</td>
+        <td>${o.quantity}</td>
+        <td style="color:var(--muted)">${o.customer_email}</td>
+        <td><span class="status-badge status-${o.status}">${statusIcon(o.status)} ${o.status}</span></td>
+        <td class="mono" style="color:var(--muted);font-size:11px">${formatTime(o.created_at)}</td>
+      </tr>
+    `).join('');
+  }
+
+  function statusIcon(s) {
+    return s === 'confirmed' ? '✅' : s === 'cancelled' ? '❌' : '⏳';
+  }
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString();
+  }
+
+  // ── Place Order ──────────────────────────────────────────────────────────────
+
+  async function placeOrder() {
+    const product_id     = document.getElementById('product').value;
+    const quantity       = parseInt(document.getElementById('quantity').value);
+    const customer_email = document.getElementById('email').value;
+
+    if (!product_id || !quantity || !customer_email) {
+      logEvent('warn', 'Please fill in all fields before submitting.');
+      return;
+    }
+
+    await submitOrder({ product_id, quantity, customer_email });
+  }
+
+  async function placeFailOrder() {
+    const customer_email = document.getElementById('email').value || 'demo@example.com';
+    logEvent('warn', 'Placing order for PROD-005 (0 stock) — Saga failure path triggered');
+    await submitOrder({ product_id: 'PROD-005', quantity: 1, customer_email });
+  }
+
+  async function submitOrder(payload) {
+    const btn = document.getElementById('btn-submit');
+    btn.disabled = true;
+    btn.textContent = '⏳ Submitting...';
+
+    resetPipeline();
+    logEvent('info', `POST /orders → { product: ${payload.product_id}, qty: ${payload.quantity} }`);
+
+    try {
+      const res  = await fetch(`${ORDER_URL}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const order = await res.json();
+
+      if (!res.ok) {
+        logEvent('bad', `Validation error: ${order.error}`);
+        btn.disabled = false;
+        btn.textContent = '⚡ Place Order';
+        return;
+      }
+
+      activeOrderId = order.id;
+      logEvent('good', `Order #${order.id} created — status: pending`);
+      animateNode('node-order', 'pulse');
+      showTracker(order.id, '⏳ pending — event published to RabbitMQ...');
+
+      // Animate the pipeline stages with delay
+      setTimeout(() => { animateArrow('arrow-1', true); animateNode('node-rabbit1', 'pulse'); logEvent('info', `[RabbitMQ] OrderCreated event published`); }, 600);
+      setTimeout(() => { animateArrow('arrow-2', true); animateNode('node-inventory', 'pulse'); logEvent('info', `[Inventory] Checking stock for ${payload.product_id}...`); }, 1200);
+
+      // Poll for result
+      if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(() => pollOrder(order.id, payload.product_id), 1500);
+
+    } catch (e) {
+      logEvent('bad', 'Could not reach Order Service — is Docker running?');
+      btn.disabled = false;
+      btn.textContent = '⚡ Place Order';
+    }
+  }
+
+  async function pollOrder(orderId, productId) {
+    try {
+      const res   = await fetch(`${ORDER_URL}/orders/${orderId}`);
+      const order = await res.json();
+
+      if (order.status === 'confirmed') {
+        clearInterval(pollInterval);
+        animateArrow('arrow-3', true);
+        animateNode('node-rabbit2', 'pulse');
+        setTimeout(() => { animateArrow('arrow-4', true); animateNode('node-notification', 'good'); }, 400);
+        logEvent('good', `[Inventory] Reserved stock — InventoryReserved published`);
+        setTimeout(() => logEvent('good', `[Notification] ✅ Confirmation email sent for Order #${orderId}`), 500);
+        showTracker(orderId, '✅ confirmed');
+        activateNodes('good');
+        loadOrders();
+        loadInventory();
+        enableSubmit();
+      }
+
+      if (order.status === 'cancelled') {
+        clearInterval(pollInterval);
+        animateArrow('arrow-3', false);
+        animateNode('node-rabbit2', 'bad');
+        setTimeout(() => { animateArrow('arrow-4', false); animateNode('node-notification', 'bad'); }, 400);
+        setTimeout(() => { animateArrow('arrow-5', false); animateNode('node-saga', 'bad'); }, 800);
+        logEvent('bad', `[Inventory] Out of stock — OutOfStock published`);
+        setTimeout(() => logEvent('bad', `[Notification] ❌ Rejection email sent for Order #${orderId}`), 400);
+        setTimeout(() => logEvent('warn', `[Saga] Order #${orderId} compensation — status set to cancelled`), 800);
+        showTracker(orderId, '❌ cancelled (Saga compensated)');
+        activateNodes('bad');
+        loadOrders();
+        enableSubmit();
+      }
+
+    } catch (_) {}
+  }
+
+  // ── Pipeline Helpers ─────────────────────────────────────────────────────────
+
+  function resetPipeline() {
+    ['node-order','node-rabbit1','node-inventory','node-rabbit2','node-notification','node-saga']
+      .forEach(id => { const n = document.getElementById(id); n.className = 'pipe-node'; });
+    ['arrow-1','arrow-2','arrow-3','arrow-4','arrow-5']
+      .forEach(id => { const a = document.getElementById(id); a.className = 'pipe-arrow'; });
+  }
+
+  function animateNode(id, type) {
+    const el = document.getElementById(id);
+    el.className = `pipe-node active-${type}`;
+  }
+
+  function activateNodes(type) {
+    ['node-order','node-rabbit1','node-inventory'].forEach(id => animateNode(id, type));
+  }
+
+  function animateArrow(id, good) {
+    const el = document.getElementById(id);
+    el.className = good ? 'pipe-arrow flowing' : 'pipe-arrow flowing-bad';
+  }
+
+  // ── Tracker ──────────────────────────────────────────────────────────────────
+
+  function showTracker(id, msg) {
+    const t = document.getElementById('tracker');
+    document.getElementById('tracker-label').textContent = `Tracking Order #${id}`;
+    document.getElementById('tracker-status').textContent = msg;
+    t.classList.add('visible');
+  }
+
+  function enableSubmit() {
+    const btn = document.getElementById('btn-submit');
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Place Order';
+    activeOrderId = null;
+  }
+
+  // ── Event Log ────────────────────────────────────────────────────────────────
+
+  function logEvent(type, msg) {
+    const box  = document.getElementById('event-log');
+    const time = new Date().toLocaleTimeString();
+    const cls  = { good: 'log-good', bad: 'log-bad', info: 'log-info', warn: 'log-warn' }[type] || 'log-info';
+    const icon = { good: '✓', bad: '✗', info: '→', warn: '!' }[type] || '→';
+    const div  = document.createElement('div');
+    div.className = 'log-entry';
+    div.innerHTML = `<span class="log-time">${time}</span><span class="${cls}">${icon} ${msg}</span>`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ── Start ─────────────────────────────────────────────────────────────────────
+
+  init();
+</script>
+</body>
+</html>

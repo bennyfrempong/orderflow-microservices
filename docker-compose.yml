@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"     # AMQP protocol port
+      - "15672:15672"   # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  order-service:
+    build: ./order-service
+    container_name: order-service
+    ports:
+      - "5001:5001"
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - DATABASE_URL=sqlite:////app/data/orders.db
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./order-service/data:/app/data
+
+  inventory-service:
+    build: ./inventory-service
+    container_name: inventory-service
+    ports:
+      - "5002:5002"
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - DATABASE_URL=sqlite:////app/data/inventory.db
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./inventory-service/data:/app/data
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    ports:
+      - "5003:5003"
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  rabbitmq_data:
