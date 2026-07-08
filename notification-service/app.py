@@ -12,25 +12,21 @@ logger = logging.getLogger(__name__)
 
 def create_app():
     app = Flask(__name__)
+
+    # ── Routes ────────────────────────────────────────────────────────────────
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({'status': 'ok', 'service': 'notification-service'}), 200
+
     return app
-
-
-app = create_app()
-
-
-# ── Routes ────────────────────────────────────────────────────────────────────
-
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'ok', 'service': 'notification-service'}), 200
 
 
 # ── Background Consumer ───────────────────────────────────────────────────────
 
 def start_notification_consumer():
-    """Start the notification consumer in a background daemon thread."""
     import time
-    time.sleep(8)  # Wait for RabbitMQ to be fully ready
+    time.sleep(8)
     try:
         from consumer import start_consumer
         logger.info("Starting Notification consumer thread...")
@@ -40,6 +36,8 @@ def start_notification_consumer():
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
+
+app = create_app()
 
 if __name__ == '__main__':
     consumer_thread = threading.Thread(target=start_notification_consumer, daemon=True)

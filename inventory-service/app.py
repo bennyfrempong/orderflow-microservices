@@ -32,40 +32,32 @@ def create_app():
         seed_products(db)
         logger.info("Inventory database initialized and seeded")
 
+    # ── Routes ────────────────────────────────────────────────────────────────
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return jsonify({'status': 'ok', 'service': 'inventory-service'}), 200
+
+    @app.route('/products', methods=['GET'])
+    def list_products():
+        products = Product.query.all()
+        return jsonify([p.to_dict() for p in products]), 200
+
+    @app.route('/products/<product_id>', methods=['GET'])
+    def get_product(product_id):
+        product = Product.query.get(product_id)
+        if not product:
+            return jsonify({'error': f'Product {product_id} not found'}), 404
+        return jsonify(product.to_dict()), 200
+
     return app
-
-
-app = create_app()
-
-
-# ── Routes ────────────────────────────────────────────────────────────────────
-
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'ok', 'service': 'inventory-service'}), 200
-
-
-@app.route('/products', methods=['GET'])
-def list_products():
-    """List all products and their current stock levels — useful for demos."""
-    products = Product.query.all()
-    return jsonify([p.to_dict() for p in products]), 200
-
-
-@app.route('/products/<product_id>', methods=['GET'])
-def get_product(product_id):
-    product = Product.query.get(product_id)
-    if not product:
-        return jsonify({'error': f'Product {product_id} not found'}), 404
-    return jsonify(product.to_dict()), 200
 
 
 # ── Background Consumer ───────────────────────────────────────────────────────
 
 def start_inventory_consumer():
-    """Start the OrderCreated consumer in a background daemon thread."""
     import time
-    time.sleep(8)  # Wait for RabbitMQ to be fully ready
+    time.sleep(8)
     try:
         from consumer import start_consumer
         logger.info("Starting Inventory consumer thread...")
@@ -75,6 +67,8 @@ def start_inventory_consumer():
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
+
+app = create_app()
 
 if __name__ == '__main__':
     consumer_thread = threading.Thread(target=start_inventory_consumer, daemon=True)

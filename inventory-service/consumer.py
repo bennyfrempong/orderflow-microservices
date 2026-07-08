@@ -3,6 +3,7 @@ import json
 import os
 import time
 import logging
+from publisher import publish_inventory_reserved, publish_out_of_stock
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,6 @@ def handle_order_created(ch, method, properties, body):
         )
 
         from models import db, Product
-        from publisher import publish_inventory_reserved, publish_out_of_stock
 
         product = Product.query.get(product_id)
 
